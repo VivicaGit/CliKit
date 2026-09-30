@@ -1,12 +1,4 @@
-# ================================
-
 function extraer {
-    <#
-    .SYNOPSIS
-    Copia al portapapeles el árbol y contenido de una carpeta (para pasar a una IA).
-    .EXAMPLE
-    extraer "C:\ruta\proyecto" -IncludePdf
-    #>
     param(
         [Parameter(Mandatory=$true)]
         [string]$Path,
@@ -15,8 +7,14 @@ function extraer {
         [string[]]$ExcludeFolders = @('node_modules', '.git', 'dist', 'build', '.vscode', '.idea', 'vendor', '__pycache__')
     )
 
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path -LiteralPath $Path)) {
         Write-Host "❌ La ruta no existe: $Path" -ForegroundColor Red
+        return
+    }
+
+    $item = Get-Item -LiteralPath $Path
+    if ($item -isnot [System.IO.DirectoryInfo]) {
+        Write-Host "❌ La ruta debe ser una carpeta: $Path" -ForegroundColor Red
         return
     }
 
@@ -26,14 +24,14 @@ function extraer {
         Write-Host "   Continuando sin extraer contenido de los PDF..." -ForegroundColor Yellow
     }
 
-    $basePath = (Resolve-Path $Path).Path
+    $basePath = (Resolve-Path -LiteralPath $Path).Path
 
     function Get-FolderParts($relParts) {
         if ($relParts.Length -le 1) { return @() }
         return ,@($relParts | Select-Object -First ($relParts.Length - 1))
     }
 
-    $allFiles = Get-ChildItem -Path $Path -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object {
+    $allFiles = Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object {
         $relParts = $_.FullName.Substring($basePath.Length).TrimStart('\', '/') -split '[\\/]'
         $folderParts = Get-FolderParts $relParts
         $excluded = $false
@@ -121,7 +119,6 @@ function extraer {
             continue
         }
 
-        # Extracción de PDF
         if ($file.Extension -eq '.pdf') {
             if (Get-Command pdftotext -ErrorAction SilentlyContinue) {
                 $pdfCount++
@@ -133,34 +130,41 @@ function extraer {
                 } catch {
                     [void]$contentSb.AppendLine("[No se pudo extraer el texto del PDF]")
                 } finally {
-                    Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+                    Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue
                 }
+                [void]$contentSb.AppendLine()
+            } else {
+                [void]$contentSb.AppendLine("===== $rel (PDF) =====")
+                [void]$contentSb.AppendLine("[pdftotext no está instalado - no se pudo extraer el texto]")
                 [void]$contentSb.AppendLine()
             }
             continue
         }
 
-        # Extracción de Word (.docx)
         if ($file.Extension -eq '.docx') {
             $docxCount++
             [void]$contentSb.AppendLine("===== $rel (DOCX) =====")
+            $zip = $null
             try {
                 Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
                 $zip = [System.IO.Compression.ZipFile]::OpenRead($file.FullName)
                 $entry = $zip.GetEntry("word/document.xml")
                 if ($entry) {
-                    $reader = [System.IO.StreamReader]::new($entry.Open(), [System.Text.Encoding]::UTF8)
+                    $stream = $entry.Open()
+                    $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8)
                     $xml = $reader.ReadToEnd()
-                    $reader.Close()
+                    $reader.Dispose()
+                    $stream.Dispose()
                     $text = ($xml -replace '</w:p>', "`r`n") -replace '<[^>]+>', ''
                     $text = [System.Net.WebUtility]::HtmlDecode($text).Trim()
                     [void]$contentSb.AppendLine($text)
                 } else {
                     [void]$contentSb.AppendLine("[No se encontró contenido de texto en el documento]")
                 }
-                $zip.Dispose()
             } catch {
                 [void]$contentSb.AppendLine("[No se pudo leer el archivo .docx]")
+            } finally {
+                if ($zip) { $zip.Dispose() }
             }
             [void]$contentSb.AppendLine()
             continue
@@ -190,190 +194,152 @@ function extraer {
 
     if ($charCount -gt $charLimit) {
         $outFile = Join-Path $basePath "_extraccion.txt"
-        $finalOutput | Out-File -FilePath $outFile -Encoding UTF8 -Force
+        $finalOutput | Out-File -LiteralPath $outFile -Encoding UTF8 -Force
         $usedFile = $true
-        $outFile | Set-Clipboard
+        Set-Clipboard -Value $outFile
     } else {
-        $finalOutput | Set-Clipboard
+        Set-Clipboard -Value $finalOutput
     }
 
     Write-Host "✅ Listo" -ForegroundColor Green
     if ($usedFile) {
         Write-Host "   📄 Supera el límite de $charLimit caracteres → guardado como archivo:" -ForegroundColor Yellow
         Write-Host "   $outFile" -ForegroundColor Cyan
-        Write-Host "   (la ruta del archivo se copió al portapapeles, no el contenido)"
+        Write-Host "   (la ruta del archivo se copió al portapapeles)"
     } else {
         Write-Host "   Copiado al portapapeles (texto directo)"
     }
     Write-Host "   Total archivos: $($allFiles.Count) | Legibles: $readableCount | PDFs: $pdfCount | Word: $docxCount"
-    Write-Host "   Omitidos (extension): $skippedCount | Omitidos (binario detectado): $binarySkipped"
+    Write-Host "   Omitidos (extensión): $skippedCount | Omitidos (binario): $binarySkipped"
     Write-Host "   Caracteres: $charCount | Tokens aprox: ~$estimatedTokens"
 }
 
-# ================================
-
 function yt-video {
-    <#
-    .SYNOPSIS
-    Descarga un vídeo con yt-dlp y notifica con un toast al terminar.
-    .EXAMPLE
-    yt-video "https://..."
-    #>
     param(
-        [string]$url,
-        [string]$path = "C:\Users\$env:USERNAME\Pictures\yt-dlp\input"
+        [Parameter(Mandatory=$true)]
+        [string[]]$Url,
+        [string]$path = "$env:USERPROFILE\Pictures\yt-dlp\input"
     )
 
-    if (!(Test-Path $path)) { New-Item -ItemType Directory -Path $path -Force > $null }
+    if (-not (Test-Path -LiteralPath $path)) {
+        New-Item -ItemType Directory -Path $path -Force | Out-Null
+    }
 
-    $result = yt-dlp -o "$path\%(title)s.%(ext)s" $url
-    $success = $LASTEXITCODE -eq 0
-
-    try {
-        [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
-        $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
-        $textNodes = $template.GetElementsByTagName("text")
-        $textNodes.Item(0).AppendChild($template.CreateTextNode("YT-DLP")) > $null
-        $textNodes.Item(1).AppendChild($template.CreateTextNode($(if($success){"✅ Completado"}else{"❌ Error"}))) > $null
-        $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
-        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("YT-DLP").Show($toast)
-    } catch { }
+    if ($Url.Count -eq 1) {
+        $singleUrl = $Url[0]
+        Write-Host "Descargando vídeo: $singleUrl" -ForegroundColor Cyan
+        $output = yt-dlp -o "$path\%(title)s.%(ext)s" --no-playlist $singleUrl 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Vídeo descargado con éxito en: $path" -ForegroundColor Green
+        } else {
+            Write-Host "❌ Error al descargar el vídeo." -ForegroundColor Red
+            if ($output) {
+                $output | Select-Object -Last 5 | ForEach-Object { Write-Host "   $_" }
+            }
+        }
+    } else {
+        $total = $Url.Count
+        Write-Host "Iniciando descarga de $total vídeos en segundo plano..." -ForegroundColor Cyan
+        $count = 0
+        foreach ($u in $Url) {
+            $outPattern = "$path\%(title)s.%(ext)s"
+            Start-Process -FilePath "yt-dlp" -ArgumentList @("-o", "`"$outPattern`"", "`"$u`"") -WindowStyle Hidden
+            Write-Host "▶ Descarga lanzada: $u" -ForegroundColor Cyan
+            $count++
+        }
+        Write-Host "✅ Se han lanzado $count descargas en segundo plano hacia $path" -ForegroundColor Green
+    }
 }
 
-# ================================
-
 function compress-video {
-    <#
-    .SYNOPSIS
-    Comprime todos los vídeos de una carpeta con ffmpeg (calidad low/medium/high).
-    .EXAMPLE
-    compress-video -quality low
-    #>
     param(
-        [string]$inputPath = "C:\Users\$env:USERNAME\Pictures\yt-dlp\input",
-        [string]$outputPath = "C:\Users\$env:USERNAME\Pictures\yt-dlp\outputs",
+        [string]$inputPath = "$env:USERPROFILE\Pictures\yt-dlp\input",
+        [string]$outputPath = "$env:USERPROFILE\Pictures\yt-dlp\outputs",
         [ValidateSet("low", "medium", "high")]
         [string]$quality = "medium"
     )
 
-    $crf = @{ low = 28; medium = 23; high = 18 }[$quality]
-
-    if (!(Test-Path $outputPath)) { New-Item -ItemType Directory -Path $outputPath -Force > $null }
-
-    $videos = Get-ChildItem $inputPath -File | Where-Object { '.mp4','.avi','.mkv','.mov','.wmv' -contains $_.Extension.ToLower() }
-
-    if ($videos.Count -eq 0) {
-        Write-Host "⚠️ No se encontraron videos en: $inputPath" -ForegroundColor Yellow
+    if (-not (Test-Path -LiteralPath $inputPath)) {
+        Write-Host "⚠️ La carpeta de entrada no existe: $inputPath" -ForegroundColor Yellow
         return
     }
 
-    $videos | ForEach-Object {
-        $outFile = Join-Path $outputPath "$($_.BaseName)_compressed.mp4"
-        Write-Host "Comprimiendo: $($_.Name)..." -ForegroundColor Cyan
+    if (-not (Test-Path -LiteralPath $outputPath)) {
+        New-Item -ItemType Directory -Path $outputPath -Force | Out-Null
+    }
 
-        ffmpeg -i $_.FullName -c:v libx264 -crf $crf -preset medium -c:a aac -b:a 128k $outFile -y 2>&1 | Out-Null
-        $success = $LASTEXITCODE -eq 0
+    $crf = @{ low = 28; medium = 23; high = 18 }[$quality]
 
-        if ($success) {
-            $originalSize = [math]::Round($_.Length / 1MB, 2)
-            $newSize = [math]::Round((Get-Item $outFile).Length / 1MB, 2)
-            $saved = [math]::Round((1 - $newSize/$originalSize) * 100, 1)
-            Write-Host "✅ $($_.Name): $originalSize MB → $newSize MB ($saved% reducido)" -ForegroundColor Green
+    $videos = Get-ChildItem -LiteralPath $inputPath -File -ErrorAction SilentlyContinue | Where-Object {
+        '.mp4','.avi','.mkv','.mov','.wmv' -contains $_.Extension.ToLower()
+    }
+
+    if (-not $videos -or $videos.Count -eq 0) {
+        Write-Host "⚠️ No se encontraron vídeos en: $inputPath" -ForegroundColor Yellow
+        return
+    }
+
+    $compressedCount = 0
+    foreach ($video in $videos) {
+        $outFile = Join-Path $outputPath "$($video.BaseName)_compressed.mp4"
+        Write-Host "Comprimiendo: $($video.Name)..." -ForegroundColor Cyan
+
+        ffmpeg -i $video.FullName -c:v libx264 -crf $crf -preset medium -c:a aac -b:a 128k $outFile -y 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $originalSize = [math]::Round($video.Length / 1MB, 2)
+            $newSize = [math]::Round((Get-Item -LiteralPath $outFile).Length / 1MB, 2)
+            $saved = if ($originalSize -gt 0) { [math]::Round((1 - $newSize / $originalSize) * 100, 1) } else { 0 }
+            Write-Host "✅ $($video.Name): $originalSize MB → $newSize MB ($saved% reducido)" -ForegroundColor Green
+            $compressedCount++
+        } else {
+            Write-Host "❌ Error al comprimir $($video.Name)" -ForegroundColor Red
         }
     }
 
-    try {
-        [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
-        $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
-        $textNodes = $template.GetElementsByTagName("text")
-        $textNodes.Item(0).AppendChild($template.CreateTextNode("Compress-Video")) > $null
-        $textNodes.Item(1).AppendChild($template.CreateTextNode("✅ Compresión completada")) > $null
-        $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
-        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Compress-Video").Show($toast)
-    } catch { }
+    Write-Host "Completado: $compressedCount vídeo(s) comprimido(s)."
 }
-
-# ================================
-
-function grabar-todo {
-    <#
-    .SYNOPSIS
-    Lee el portapapeles y lanza en segundo plano una descarga (yt-video) por cada URL encontrada de un dominio concreto.
-    #>
-    $d = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(">[REMOVED]"))
-    Get-Clipboard | Where-Object { $_ -match $d } | ForEach-Object {
-        $nombre = ($_ -split '/')[-2]
-        Start-Job -Name $nombre -ScriptBlock {
-            . $using:PROFILE
-            yt-video $using:_
-        }
-    }
-}
-
-# ================================
 
 function parar-todo {
-    <#
-    .SYNOPSIS
-    Mata todos los procesos yt-dlp en marcha.
-    #>
-    Get-Process yt-dlp -ErrorAction SilentlyContinue | ForEach-Object { taskkill /PID $_.Id }
+    $procs = Get-Process yt-dlp -ErrorAction SilentlyContinue
+    if ($procs) {
+        $count = $procs.Count
+        $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+        Write-Host "⏹ Detenidos $count proceso(s) de yt-dlp." -ForegroundColor Green
+    } else {
+        Write-Host "ℹ️ No hay descargas activas de yt-dlp." -ForegroundColor Yellow
+    }
 }
-
-# ================================
 
 function recuperar-todo {
-    <#
-    .SYNOPSIS
-    Repara archivos .part (descargas incompletas) con ffmpeg.
-    #>
-    Get-ChildItem "C:\Users\$env:USERNAME\Pictures\yt-dlp\input" -Filter "*.part" | ForEach-Object {
-        $salida = $_.FullName -replace '\.part$', '_ok.mp4'
-        ffmpeg -i $_.FullName -c copy $salida -y
-    }
-}
+    $searchDirs = @(
+        "$env:USERPROFILE\Videos",
+        "$env:USERPROFILE\Pictures\yt-dlp\input"
+    )
 
-# ================================
-
-function recuerdame {
-    <#
-    .SYNOPSIS
-    Lista todas las funciones del perfil con su descripción.
-    #>
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($PROFILE, [ref]$null, [ref]$null)
-    $allFunctions = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
-
-    $topLevel = $allFunctions | Where-Object {
-        $parent = $_.Parent
-        while ($parent -and $parent -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) {
-            $parent = $parent.Parent
+    $partFiles = @()
+    foreach ($dir in $searchDirs) {
+        if (Test-Path -LiteralPath $dir) {
+            $partFiles += Get-ChildItem -LiteralPath $dir -Filter "*.part" -File -ErrorAction SilentlyContinue
         }
-        $null -eq $parent
     }
 
-    Write-Host "`n📋 FUNCIONES DISPONIBLES`n" -ForegroundColor Cyan
+    if (-not $partFiles -or $partFiles.Count -eq 0) {
+        Write-Host "ℹ️ No se encontraron archivos .part en Videos o Pictures\yt-dlp\input." -ForegroundColor Yellow
+        return
+    }
 
-    foreach ($fn in $topLevel) {
-        if ($fn.Name -eq 'recuerdame') { continue }
-        $help = Get-Help $fn.Name -ErrorAction SilentlyContinue
-        $synopsis = if ($help -and $help.Synopsis -and $help.Synopsis -ne $fn.Name) {
-            $help.Synopsis.Trim()
+    $recovered = 0
+    foreach ($file in $partFiles) {
+        $salida = $file.FullName -replace '\.part$', '_ok.mp4'
+        Write-Host "Reparando: $($file.Name)..." -ForegroundColor Cyan
+        ffmpeg -i $file.FullName -c copy $salida -y 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Reparado: $salida" -ForegroundColor Green
+            $recovered++
         } else {
-            "(sin descripción todavía)"
+            Write-Host "❌ Error al reparar: $($file.Name)" -ForegroundColor Red
         }
-        Write-Host $fn.Name -ForegroundColor Green
-        Write-Host "  $synopsis`n"
     }
-}
 
-# ================================
-
-function clikit {
-    <#
-    .SYNOPSIS
-    Abre la herramienta visual CliKit en segundo plano.
-    .EXAMPLE
-    clikit
-    #>
-    Start-Process -FilePath "cmd.exe" -ArgumentList "/c npm start" -WorkingDirectory "[APP_PATH]" -WindowStyle Hidden
+    Write-Host "Finalizado: $recovered de $($partFiles.Count) archivo(s) recuperado(s)."
 }

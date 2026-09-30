@@ -1,7 +1,7 @@
 {
   "name": "clikit",
   "version": "1.0.0",
-  "description": "CliKit by Vortic",
+  "description": "CliKit by vivica",
   "main": "main.js",
   "private": true,
   "scripts": {
@@ -9,8 +9,11 @@
     "build": "electron-builder --win portable"
   },
   "build": {
-    "appId": "com.vortic.clikit",
+    "appId": "com.vivica.clikit",
     "productName": "CliKit",
+    "asarUnpack": [
+      "functions.ps1"
+    ],
     "win": {
       "target": "portable",
       "icon": "icon.ico"
@@ -25,8 +28,8 @@
     ]
   },
   "keywords": [],
-  "author": "Vortic",
-  "license": "UNLICENSED",
+  "author": "vivica",
+  "license": "SEE LICENSE IN LICENSE.txt",
   "devDependencies": {
     "electron": "^44.5.0",
     "electron-builder": "^26.15.3"
