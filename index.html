@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>CliKit by Vortic</title>
+  <style>
+    body { font-family: monospace; background: #c0c0c0; padding: 12px; margin: 0; }
+    fieldset { border: 2px groove #fff; margin-bottom: 10px; padding: 8px 10px; }
+    legend { font-weight: bold; }
+    input[type="text"], select { padding: 3px; border: 2px inset #fff; background: #fff; font-family: monospace; }
+    button { padding: 3px 8px; background: #d4d0c8; border: 2px outset #fff; cursor: pointer; font-family: monospace; }
+    button:active { border: 2px inset #fff; }
+    
+    .terminal-container { position: relative; width: 100%; height: 190px; }
+    #consola { 
+      width: 100%; 
+      height: 100%; 
+      box-sizing: border-box; 
+      background: #000; 
+      color: #00ff66; 
+      padding: 8px; 
+      border: 2px inset #808080; 
+      overflow-y: auto; 
+      white-space: pre-wrap; 
+      margin: 0; 
+    }
+    
+    #consola.bsod-mode {
+      background: #0000aa !important;
+      color: #ffffff !important;
+    }
+
+    #matrixCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; border: 2px inset #808080; box-sizing: border-box; }
+
+    .drag-active { outline: 2px dashed #000080; background: #d0d0e0; }
+    details { margin-top: 6px; font-size: 11px; background: #d8d8d8; padding: 4px; border: 1px inset #fff; }
+    summary { cursor: pointer; font-weight: bold; }
+    .grid-ext { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; margin-top: 4px; }
+    .grid-ext label { cursor: pointer; }
+    .row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+    .lbl { width: 65px; font-weight: bold; }
+    .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: #000080; color: #fff; padding: 4px 8px; }
+
+    /* MODAL RETRO: ANTES DE USAR */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; justify-content: center; align-items: center; }
+    .modal-box { width: 490px; background: #c0c0c0; border: 3px outset #fff; box-shadow: 4px 4px 10px #000; padding: 2px; }
+    .modal-header { background: #000080; color: #fff; padding: 3px 6px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
+    .modal-body { padding: 12px; font-size: 12px; line-height: 1.4; color: #000; }
+    .code-box { background: #000; color: #00ff66; padding: 6px; border: 2px inset #fff; font-size: 11px; word-break: break-all; margin: 8px 0; }
+  </style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <span><b>CliKit</b> [Win + Alt + Espacio]</span>
+    <div>
+      <button id="btnReq" style="background: #e8d098; font-weight: bold;" title="Requisitos previos">Antes de usar</button>
+      <button id="btnHide" title="Minimiza a la bandeja">Ocultar</button>
+      <button id="btnQuit" style="background: #e0a8a8;" title="Cierra la aplicacion">Salir</button>
+    </div>
+  </div>
+
+  <!-- MODAL: ANTES DE USAR / REQUISITOS -->
+  <div id="modalReq" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>Instalacion y Requisitos Previos</span>
+        <button id="btnCloseReq" style="padding: 0 4px; font-weight: bold;">X</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-top: 0;">Para usar todas las utilidades necesitas estas herramientas en el sistema:</p>
+        <ul style="margin: 4px 0 10px 18px; padding: 0;">
+          <li><b>PowerShell 7</b> (motor donde corren los scripts)</li>
+          <li><b>FFmpeg</b> (compresion y reparacion de video)</li>
+          <li><b>yt-dlp</b> (descarga multimedia)</li>
+          <li><b>Poppler</b> (extraccion de texto de archivos PDF)</li>
+        </ul>
+        <p style="margin: 0;">Instala todo en Windows ejecutando esto en una terminal de administrador:</p>
+        <div class="code-box" id="installCmd">winget install --id Microsoft.PowerShell --id Gyan.FFmpeg --id yt-dlp.yt-dlp --id oschwartz10612.Poppler -e</div>
+        <div style="text-align: right; margin-top: 10px;">
+          <button id="btnCopyCmd"><b>Copiar comando</b></button>
+          <button id="btnOkReq" style="margin-left: 6px;">Entendido</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODULO: EXTRAER ARBOL Y ARCHIVOS -->
+  <fieldset id="dropZoneExtract">
+    <legend>Extraer Arbol y Contenido</legend>
+    <div class="row">
+      <input id="path" list="list-extract" type="text" placeholder="Ruta de la carpeta (o doble clic para recientes)" style="flex: 1;">
+      <datalist id="list-extract"></datalist>
+      <button id="btnBrowse">Examinar...</button>
+      <button id="btnExtraer"><b>Extraer</b></button>
+    </div>
+    <label><input type="checkbox" id="chkPdf" checked> Incluir documentos (PDF, DOCX)</label>
+
+    <details>
+      <summary>[+] Filtro de extensiones omitidas</summary>
+      <p style="margin: 2px 0; color: #444;">Aparecen en el arbol pero no se extrae su texto. Desmarca para incluir:</p>
+      <div class="grid-ext" id="extContainer"></div>
+    </details>
+  </fieldset>
+
+  <!-- MODULO: COMPARADOR Y SINCRONIZADOR -->
+  <fieldset id="dropZoneDiff">
+    <legend>Comparar y Sincronizar</legend>
+    <div class="row">
+      <span class="lbl">Origen:</span>
+      <input id="diffSrc" list="list-diff-src" type="text" placeholder="Carpeta origen" style="flex: 1;">
+      <datalist id="list-diff-src"></datalist>
+      <button id="btnBrowseSrc">Examinar...</button>
+    </div>
+    <div class="row">
+      <span class="lbl">Destino:</span>
+      <input id="diffDst" list="list-diff-dst" type="text" placeholder="Carpeta destino" style="flex: 1;">
+      <datalist id="list-diff-dst"></datalist>
+      <button id="btnBrowseDst">Examinar...</button>
+    </div>
+    <div style="text-align: right; margin-top: 4px;">
+      <button id="btnCompare"><b>Comparar</b></button>
+      <button id="btnSync" style="margin-left: 6px;"><b>Sincronizar (Orig -> Dest)</b></button>
+    </div>
+  </fieldset>
+
+  <!-- MODULO: MULTIMEDIA -->
+  <fieldset>
+    <legend>Video y Descargas</legend>
+    <div class="row">
+      <input id="url" type="text" placeholder="URL del video" style="flex: 1;">
+      <button id="btnYt">Descargar</button>
+    </div>
+    <div class="row">
+      <label>Compresion:</label>
+      <select id="selQ">
+        <option value="low">Baja (CRF 28)</option>
+        <option value="medium" selected>Media (CRF 23)</option>
+        <option value="high">Alta (CRF 18)</option>
+      </select>
+      <button id="btnComp">Comprimir</button>
+      <button id="btnFix">Reparar .part</button>
+      <button id="btnStop" style="background:#e0a8a8;">Parar</button>
+    </div>
+  </fieldset>
+
+  <button id="btnClear">Limpiar consola</button><br><br>
+
+  <div class="terminal-container">
+    <div id="consola">> CliKit listo.</div>
+    <canvas id="matrixCanvas"></canvas>
+  </div>
+
+  <script>
+    function addToHistory(key, value) {
+      if (!value || value.trim().length < 2) return;
+      const cleanVal = value.trim();
+      let history = JSON.parse(localStorage.getItem(key) || '[]');
+      history = [cleanVal, ...history.filter(p => p.toLowerCase() !== cleanVal.toLowerCase())].slice(0, 10);
+      localStorage.setItem(key, JSON.stringify(history));
+      renderHistory(key);
+    }
+
+    function renderHistory(key) {
+      const datalist = document.getElementById(`list-${key}`);
+      if (!datalist) return;
+      datalist.innerHTML = '';
+      const history = JSON.parse(localStorage.getItem(key) || '[]');
+      history.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p;
+        datalist.appendChild(opt);
+      });
+    }
+
+    ['extract', 'diff-src', 'diff-dst'].forEach(renderHistory);
+
+    const defaultExcludes = [
+      '.png','.jpg','.jpeg','.gif','.svg','.ico',
+      '.mp4','.mov','.avi',
+      '.zip','.rar','.7z','.tar','.gz',
+      '.exe','.bin','.dll','.wasm',
+      '.sqlite','.db','.lock',
+      '.woff','.woff2','.ttf','.eot'
+    ];
+
+    const extBox = document.getElementById('extContainer');
+    defaultExcludes.forEach(ext => {
+      const lbl = document.createElement('label');
+      lbl.innerHTML = `<input type="checkbox" value="${ext}" checked> ${ext}`;
+      extBox.appendChild(lbl);
+    });
+
+    const consola = document.getElementById('consola');
+
+    const log = m => { 
+      consola.innerText = m; 
+      consola.scrollTop = 0; 
+      if (typeof m === 'string' && (m.includes('[ERROR]') || m.includes('❌'))) {
+        consola.classList.add('bsod-mode');
+      } else {
+        consola.classList.remove('bsod-mode');
+      }
+    };
+
+    consola.addEventListener('click', () => {
+      consola.classList.remove('bsod-mode');
+    });
+
+    // Control del Modal Requisitos
+    const modalReq = document.getElementById('modalReq');
+    document.getElementById('btnReq').onclick = () => modalReq.style.display = 'flex';
+    document.getElementById('btnCloseReq').onclick = () => modalReq.style.display = 'none';
+    document.getElementById('btnOkReq').onclick = () => modalReq.style.display = 'none';
+    document.getElementById('btnCopyCmd').onclick = () => {
+      const cmdText = document.getElementById('installCmd').innerText;
+      navigator.clipboard.writeText(cmdText);
+      log('> Comando copiado: winget install ...');
+      modalReq.style.display = 'none';
+    };
+
+    function attachDrop(inputElement) {
+      inputElement.addEventListener('dragover', (e) => e.preventDefault());
+      inputElement.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer.files.length > 0) {
+          const p = window.api.getPathForFile(e.dataTransfer.files[0]);
+          inputElement.value = p;
+          log(`Ruta seleccionada: ${p}`);
+        }
+      });
+    }
+
+    attachDrop(document.getElementById('path'));
+    attachDrop(document.getElementById('diffSrc'));
+    attachDrop(document.getElementById('diffDst'));
+
+    document.getElementById('btnHide').onclick = () => window.api.hideWindow();
+    document.getElementById('btnQuit').onclick = () => window.api.quitApp();
+
+    document.getElementById('btnBrowse').onclick = async () => {
+      const f = await window.api.pickFolder();
+      if (f) document.getElementById('path').value = f;
+    };
+    document.getElementById('btnBrowseSrc').onclick = async () => {
+      const f = await window.api.pickFolder();
+      if (f) document.getElementById('diffSrc').value = f;
+    };
+    document.getElementById('btnBrowseDst').onclick = async () => {
+      const f = await window.api.pickFolder();
+      if (f) document.getElementById('diffDst').value = f;
+    };
+
+    document.getElementById('btnExtraer').onclick = async () => {
+      const targetPath = document.getElementById('path').value.trim();
+      const activeExcludes = Array.from(extBox.querySelectorAll('input:checked')).map(i => i.value).join(',');
+      
+      log('Extrayendo datos...');
+      const res = await window.api.runExtraer({
+        path: targetPath,
+        includePdf: document.getElementById('chkPdf').checked,
+        excludeExt: activeExcludes
+      });
+      log(res);
+
+      if (targetPath && !res.includes('[ERROR]') && !res.includes('❌')) {
+        addToHistory('extract', targetPath);
+      }
+    };
+
+    document.getElementById('btnCompare').onclick = async () => {
+      const src = document.getElementById('diffSrc').value.trim();
+      const dst = document.getElementById('diffDst').value.trim();
+
+      log('Comparando directorios...');
+      const res = await window.api.compareFolders(src, dst);
+      log(res);
+
+      if (!res.includes('[ERROR]')) {
+        if (src) addToHistory('diff-src', src);
+        if (dst) addToHistory('diff-dst', dst);
+      }
+    };
+
+    document.getElementById('btnSync').onclick = async () => {
+      const src = document.getElementById('diffSrc').value.trim();
+      const dst = document.getElementById('diffDst').value.trim();
+
+      log('Sincronizando...');
+      const res = await window.api.syncFolders(src, dst);
+      log(res);
+
+      if (!res.includes('[ERROR]')) {
+        if (src) addToHistory('diff-src', src);
+        if (dst) addToHistory('diff-dst', dst);
+      }
+    };
+
+    document.getElementById('btnYt').onclick = async () => {
+      log('Descargando video...');
+      log(await window.api.runYtVideo(document.getElementById('url').value));
+    };
+
+    document.getElementById('btnComp').onclick = async () => {
+      log('Comprimiendo videos...');
+      log(await window.api.runCompressVideo(document.getElementById('selQ').value));
+    };
+
+    document.getElementById('btnFix').onclick = async () => {
+      log('Reparando descargas...');
+      log(await window.api.runRecuperarTodo() || 'Completado.');
+    };
+
+    document.getElementById('btnStop').onclick = async () => {
+      log('Deteniendo...');
+      log(await window.api.runPararTodo() || 'Detenido.');
+    };
+
+    document.getElementById('btnClear').onclick = () => {
+      log('> Listo.');
+    };
+
+    // ==========================================
+    // MATRIX RAIN
+    // ==========================================
+    const canvas = document.getElementById('matrixCanvas');
+    const ctx = canvas.getContext('2d');
+    let matrixInterval = null;
+
+    function startMatrix() {
+      canvas.width = consola.clientWidth;
+      canvas.height = consola.clientHeight;
+      canvas.style.display = 'block';
+
+      const letters = '0123456789ABCDEF@#$%&*+-=<>{}[]';
+      const fontSize = 13;
+      const columns = Math.floor(canvas.width / fontSize);
+      const drops = Array(columns).fill(1);
+
+      function draw() {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#00ff66';
+        ctx.font = `${fontSize}px monospace`;
+
+        for (let i = 0; i < drops.length; i++) {
+          const text = letters.charAt(Math.floor(Math.random() * letters.length));
+          ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+
+          if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+            drops[i] = 0;
+          }
+          drops[i]++;
+        }
+      }
+
+      clearInterval(matrixInterval);
+      matrixInterval = setInterval(draw, 33);
+    }
+
+    function stopMatrix() {
+      if (matrixInterval) {
+        clearInterval(matrixInterval);
+        matrixInterval = null;
+        canvas.style.display = 'none';
+      }
+    }
+
+    consola.ondblclick = startMatrix;
+    canvas.onclick = stopMatrix;
+
+    let keyBuffer = '';
+    window.addEventListener('keydown', (e) => {
+      if (matrixInterval) {
+        if (e.key === 'Escape' || e.key === ' ') stopMatrix();
+        return;
+      }
+      keyBuffer = (keyBuffer + e.key.toLowerCase()).slice(-6);
+      if (keyBuffer === 'matrix' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+        startMatrix();
+        keyBuffer = '';
+      }
+    });
+  </script>
+</body>
+</html>

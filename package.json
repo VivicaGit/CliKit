@@ -1,0 +1,32 @@
+{
+  "name": "clikit",
+  "version": "1.0.0",
+  "description": "CliKit by Vortic",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.vortic.clikit",
+    "productName": "CliKit",
+    "win": {
+      "target": "portable"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "functions.ps1",
+      "LICENSE.txt"
+    ]
+  },
+  "keywords": [],
+  "author": "Vortic",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^44.5.0",
+    "electron-builder": "^26.15.3"
+  }
+}
