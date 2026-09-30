@@ -12,14 +12,16 @@
     "appId": "com.vortic.clikit",
     "productName": "CliKit",
     "win": {
-      "target": "portable"
+      "target": "portable",
+      "icon": "icon.ico"
     },
     "files": [
       "main.js",
       "preload.js",
       "index.html",
       "functions.ps1",
-      "LICENSE.txt"
+      "LICENSE.txt",
+      "icon.ico"
     ]
   },
   "keywords": [],
