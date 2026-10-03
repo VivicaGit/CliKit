@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, globalShortcut, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { exec } = require('child_process');
 
 let mainWindow = null;
@@ -37,9 +38,9 @@ function createWindow() {
   const iconPath = path.join(__dirname, 'icon.ico');
   mainWindow = new BrowserWindow({
     width: 680,
-    height: 770,
+    height: 740,
     minWidth: 550,
-    minHeight: 600,
+    minHeight: 550,
     autoHideMenuBar: true,
     alwaysOnTop: false,
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
@@ -141,11 +142,96 @@ ipcMain.handle('quit-app', () => {
   app.quit();
 });
 
-ipcMain.handle('pick-folder', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory']
+async function showPathDialog(mode = 'folder') {
+  let properties = ['openFile'];
+  let filters = [];
+
+  if (mode === 'media') {
+    properties = ['openFile'];
+    filters = [
+      { name: 'Archivos Multimedia (Audio/Vídeo)', extensions: ['mp3', 'wav', 'm4a', 'mp4', 'mkv', 'flac', 'aac', 'ogg', 'avi', 'mov', 'wmv'] },
+      { name: 'Todos los archivos', extensions: ['*'] }
+    ];
+  } else if (mode === 'folder') {
+    properties = ['openDirectory'];
+  } else if (mode === 'file') {
+    properties = ['openFile'];
+  }
+
+  const dialogOpts = {
+    properties,
+    ...(filters.length > 0 ? { filters } : {})
+  };
+
+  const result = await dialog.showOpenDialog(mainWindow, dialogOpts);
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const selected = result.filePaths[0];
+  try {
+    const stats = fs.statSync(selected);
+    if (mode === 'folder') {
+      return stats.isFile() ? path.dirname(selected) : selected;
+    }
+    return selected;
+  } catch {
+    return selected;
+  }
+}
+
+ipcMain.handle('pick-path', async (_, mode = 'folder') => {
+  return await showPathDialog(mode);
+});
+
+ipcMain.handle('pick-path-menu', async (_, type = 'diff') => {
+  return new Promise((resolve) => {
+    let resolved = false;
+    let fileLabel = 'Archivo individual...';
+    let dirLabel = 'Carpeta...';
+    let filterType = 'all';
+
+    if (type === 'media') {
+      fileLabel = 'Archivo multimedia (Audio / Vídeo)...';
+      dirLabel = 'Carpeta con vídeos (Transcripción por lotes)...';
+      filterType = 'media';
+    }
+
+    const menu = Menu.buildFromTemplate([
+      {
+        label: fileLabel,
+        click: async () => {
+          resolved = true;
+          const res = await showPathDialog(filterType === 'media' ? 'media' : 'file');
+          resolve(res);
+        }
+      },
+      {
+        label: dirLabel,
+        click: async () => {
+          resolved = true;
+          const res = await showPathDialog('folder');
+          resolve(res);
+        }
+      }
+    ]);
+
+    menu.popup({
+      window: mainWindow,
+      callback: () => {
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            resolve(null);
+          }
+        }, 100);
+      }
+    });
   });
-  return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('pick-folder', async () => {
+  return await showPathDialog('folder');
 });
 
 function getFunctionsPath() {
@@ -198,13 +284,14 @@ function runPowerShell(cmd) {
   });
 }
 
-ipcMain.handle('run-extraer', async (_, { path: targetPath, includePdf, excludeExt }) => {
+ipcMain.handle('run-extraer', async (_, { path: targetPath, includePdf, excludeExt, treeOnly }) => {
   if (!targetPath || typeof targetPath !== 'string') return '[ERROR] Ruta no especificada.';
   const trimmedPath = targetPath.trim();
   if (!validatePath(trimmedPath)) return '[ERROR] La ruta no existe o contiene caracteres no permitidos.';
   const safePath = trimmedPath.replace(/'/g, "''");
   let cmd = `extraer -Path '${safePath}'`;
   if (includePdf) cmd += ' -IncludePdf';
+  if (treeOnly) cmd += ' -TreeOnly';
   if (typeof excludeExt === 'string') {
     const list = excludeExt.split(',').map(e => e.trim()).filter(Boolean);
     cmd += ` -ExcludeExtensions @(${list.map(e => `'${e}'`).join(',')})`;
@@ -258,14 +345,118 @@ function scanDir(dir, baseDir = dir) {
   return results;
 }
 
+function isBinaryBuffer(buffer) {
+  const len = Math.min(buffer.length, 8000);
+  for (let i = 0; i < len; i++) {
+    if (buffer[i] === 0) return true;
+  }
+  return false;
+}
+
+function diffTextFiles(srcPath, dstPath) {
+  const srcContent = fs.readFileSync(srcPath, 'utf8');
+  const dstContent = fs.readFileSync(dstPath, 'utf8');
+
+  if (srcContent === dstContent) {
+    return 'Archivos de texto con contenido idéntico.';
+  }
+
+  const srcLines = srcContent.split(/\r?\n/);
+  const dstLines = dstContent.split(/\r?\n/);
+
+  let diffLines = [];
+  const maxDiffDisplay = 200;
+  let diffCount = 0;
+
+  let i = 0;
+  let j = 0;
+  while (i < srcLines.length || j < dstLines.length) {
+    const sLine = i < srcLines.length ? srcLines[i] : null;
+    const dLine = j < dstLines.length ? dstLines[j] : null;
+
+    if (sLine === dLine) {
+      i++;
+      j++;
+    } else {
+      diffCount++;
+      if (diffLines.length < maxDiffDisplay) {
+        if (sLine !== null && dLine !== null) {
+          diffLines.push(`L${i + 1}: [-] ${sLine}`);
+          diffLines.push(`L${j + 1}: [+] ${dLine}`);
+        } else if (sLine !== null) {
+          diffLines.push(`L${i + 1}: [-] ${sLine}`);
+        } else if (dLine !== null) {
+          diffLines.push(`L${j + 1}: [+] ${dLine}`);
+        }
+      }
+      i++;
+      j++;
+    }
+  }
+
+  if (diffLines.length >= maxDiffDisplay) {
+    diffLines.push(`... y más diferencias (mostrando las primeras ${maxDiffDisplay} líneas).`);
+  }
+
+  return `Líneas con diferencias detectadas: ${diffCount}\n${diffLines.join('\n')}`;
+}
+
 ipcMain.handle('compare-folders', async (_, { src, dst }) => {
-  if (!src || !dst) return '[ERROR] Especifica ambas carpetas.';
+  if (!src || !dst) return '[ERROR] Especifica ambas carpetas o archivos.';
   if (!fs.existsSync(src)) return `[ERROR] No existe origen: ${src}`;
   if (!fs.existsSync(dst)) return `[ERROR] No existe destino: ${dst}`;
   if (path.resolve(src).toLowerCase() === path.resolve(dst).toLowerCase()) {
-    return '[ERROR] Origen y destino son la misma carpeta.';
+    return '[ERROR] Origen y destino son la misma ruta.';
   }
 
+  let srcStat, dstStat;
+  try {
+    srcStat = fs.statSync(src);
+    dstStat = fs.statSync(dst);
+  } catch (err) {
+    return `[ERROR] Error al acceder a los elementos: ${err.message}`;
+  }
+
+  const srcIsFile = srcStat.isFile();
+  const dstIsFile = dstStat.isFile();
+  const srcIsDir = srcStat.isDirectory();
+  const dstIsDir = dstStat.isDirectory();
+
+  if ((srcIsFile && dstIsDir) || (srcIsDir && dstIsFile)) {
+    return '[ERROR] Debes comparar dos carpetas o dos archivos del mismo tipo.';
+  }
+
+  // Si ambos son archivos existentes (Smart Diff individual)
+  if (srcIsFile && dstIsFile) {
+    const srcSize = srcStat.size;
+    const dstSize = dstStat.size;
+    const srcMtime = new Date(srcStat.mtime).toLocaleString();
+    const dstMtime = new Date(dstStat.mtime).toLocaleString();
+
+    let meta = `DIFF ARCHIVOS INDIVIDUALES:\n` +
+      `  Origen:  ${path.basename(src)} (${srcSize} B, modificado: ${srcMtime})\n` +
+      `  Destino: ${path.basename(dst)} (${dstSize} B, modificado: ${dstMtime})\n` +
+      `${'-'.repeat(50)}`;
+
+    const srcBuf = fs.readFileSync(src);
+    const dstBuf = fs.readFileSync(dst);
+    const isBin = isBinaryBuffer(srcBuf) || isBinaryBuffer(dstBuf);
+
+    if (isBin) {
+      const srcHash = crypto.createHash('sha256').update(srcBuf).digest('hex');
+      const dstHash = crypto.createHash('sha256').update(dstBuf).digest('hex');
+      const identical = (srcHash === dstHash);
+      const res = identical
+        ? `[OK] Archivos binarios IDÉNTICOS.\nSHA256: ${srcHash}`
+        : `[~] Archivos binarios DISTINTOS.\n  SHA256 Origen:  ${srcHash}\n  SHA256 Destino: ${dstHash}\n  Diferencia tamaño: ${Math.abs(srcSize - dstSize)} bytes`;
+      return `${meta}\n${res}`;
+    } else {
+      const textDiff = diffTextFiles(src, dst);
+      return `${meta}\n${textDiff}`;
+    }
+  }
+
+  // Si ambos son carpetas: mantener escaneo de árbol
   const srcFiles = scanDir(src);
   const dstFiles = scanDir(dst);
 
@@ -301,11 +492,27 @@ ipcMain.handle('compare-folders', async (_, { src, dst }) => {
 });
 
 ipcMain.handle('sync-folders', async (_, { src, dst }) => {
-  if (!src || !dst) return '[ERROR] Especifica ambas carpetas.';
+  if (!src || !dst) return '[ERROR] Especifica ambas carpetas o archivos.';
   if (!fs.existsSync(src)) return `[ERROR] No existe origen: ${src}`;
   if (!fs.existsSync(dst)) return `[ERROR] No existe destino: ${dst}`;
   if (path.resolve(src).toLowerCase() === path.resolve(dst).toLowerCase()) {
-    return '[ERROR] Origen y destino son la misma carpeta.';
+    return '[ERROR] Origen y destino son la misma ruta.';
+  }
+
+  const srcStat = fs.statSync(src);
+  const dstStat = fs.statSync(dst);
+
+  if ((srcStat.isFile() && dstStat.isDirectory()) || (srcStat.isDirectory() && dstStat.isFile())) {
+    return '[ERROR] Debes sincronizar dos carpetas o dos archivos del mismo tipo.';
+  }
+
+  if (srcStat.isFile() && dstStat.isFile()) {
+    try {
+      fs.copyFileSync(src, dst);
+      return `[SYNC] Archivo individual copiado con éxito:\n  ${src} -> ${dst}`;
+    } catch (e) {
+      return `[ERROR] No se pudo copiar el archivo: ${e.message}`;
+    }
   }
 
   const srcFiles = scanDir(src);
@@ -334,4 +541,20 @@ ipcMain.handle('sync-folders', async (_, { src, dst }) => {
 
   const resMsg = `SINCRONIZACIÓN COMPLETADA: ${copied} archivo(s) actualizados en Destino.`;
   return `${resMsg}\n${'-'.repeat(50)}\n${logOutput.length ? logOutput.join('\n') : 'Destino ya estaba al día.'}`;
+});
+
+ipcMain.handle('run-whisper', async (_, { path: filePath, model, device, notifyToast, notesMode, sceneThreshold, sceneInterval }) => {
+  if (!filePath || typeof filePath !== 'string') return '[ERROR] Archivo no especificado.';
+  const trimmed = filePath.trim();
+  if (!validatePath(trimmed)) return '[ERROR] El archivo no existe o contiene caracteres no permitidos.';
+  const safePath = trimmed.replace(/'/g, "''");
+  const safeModel = ['tiny', 'base', 'small'].includes(model) ? model : 'base';
+  const safeDevice = ['cuda', 'cpu'].includes(device) ? device : 'cpu';
+  const safeThreshold = [0.3, 0.4, 0.5].includes(Number(sceneThreshold)) ? Number(sceneThreshold) : 0.4;
+  const safeInterval = [15, 30, 60].includes(Number(sceneInterval)) ? Number(sceneInterval) : 30;
+
+  let cmd = `transcribir-whisper -FilePath '${safePath}' -Model '${safeModel}' -Device '${safeDevice}'`;
+  if (notifyToast) cmd += ' -NotifyToast';
+  if (notesMode) cmd += ` -NotesMode -SceneThreshold ${safeThreshold} -SceneInterval ${safeInterval}`;
+  return await runPowerShell(cmd);
 });

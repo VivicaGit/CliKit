@@ -4,25 +4,26 @@
   <meta charset="UTF-8">
   <title>CliKit by vivica</title>
   <style>
-    body { font-family: monospace; background: #c0c0c0; padding: 12px; margin: 0; }
-    fieldset { border: 2px groove #fff; margin-bottom: 10px; padding: 8px 10px; }
+    body { font-family: monospace; background: #c0c0c0; padding: 8px 10px; margin: 0; }
+    fieldset { border: 2px groove #fff; margin-bottom: 6px; padding: 5px 8px; }
     legend { font-weight: bold; }
-    input[type="text"], select { padding: 3px; border: 2px inset #fff; background: #fff; font-family: monospace; }
-    button { padding: 3px 8px; background: #d4d0c8; border: 2px outset #fff; cursor: pointer; font-family: monospace; }
+    input[type="text"], select { padding: 2px 4px; border: 2px inset #fff; background: #fff; font-family: monospace; font-size: 12px; }
+    button { padding: 2px 7px; background: #d4d0c8; border: 2px outset #fff; cursor: pointer; font-family: monospace; font-size: 12px; }
     button:active { border: 2px inset #fff; }
     
-    .terminal-container { position: relative; width: 100%; height: 190px; }
+    .terminal-container { position: relative; width: 100%; height: 145px; }
     #consola { 
       width: 100%; 
       height: 100%; 
       box-sizing: border-box; 
       background: #000; 
       color: #00ff66; 
-      padding: 8px; 
+      padding: 6px; 
       border: 2px inset #808080; 
       overflow-y: auto; 
       white-space: pre-wrap; 
       margin: 0; 
+      font-size: 12px;
     }
     
     #consola.bsod-mode {
@@ -33,13 +34,13 @@
     #matrixCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; border: 2px inset #808080; box-sizing: border-box; }
 
     .drag-active { outline: 2px dashed #000080; background: #d0d0e0; }
-    details { margin-top: 6px; font-size: 11px; background: #d8d8d8; padding: 4px; border: 1px inset #fff; }
+    details { margin-top: 4px; font-size: 11px; background: #d8d8d8; padding: 3px 5px; border: 1px inset #fff; }
     summary { cursor: pointer; font-weight: bold; }
-    .grid-ext { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; margin-top: 4px; }
+    .grid-ext { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; margin-top: 3px; }
     .grid-ext label { cursor: pointer; }
-    .row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
-    .lbl { width: 65px; font-weight: bold; }
-    .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: #000080; color: #fff; padding: 4px 8px; }
+    .row { display: flex; gap: 5px; align-items: center; margin-bottom: 4px; }
+    .lbl { width: 60px; font-weight: bold; }
+    .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; background: #000080; color: #fff; padding: 3px 6px; }
 
     .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; justify-content: center; align-items: center; }
     .modal-box { width: 490px; background: #c0c0c0; border: 3px outset #fff; box-shadow: 4px 4px 10px #000; padding: 2px; }
@@ -69,14 +70,17 @@
         <p style="margin-top: 0;">Para usar todas las utilidades necesitas estas herramientas en el sistema:</p>
         <ul style="margin: 4px 0 10px 18px; padding: 0;">
           <li><b>PowerShell 7</b> (motor donde corren los scripts)</li>
-          <li><b>FFmpeg</b> (compresión y reparación de vídeo)</li>
+          <li><b>FFmpeg</b> (compresión, reparación, extracción de audio y diapositivas)</li>
           <li><b>yt-dlp</b> (descarga multimedia)</li>
           <li><b>Poppler</b> (extracción de texto de archivos PDF)</li>
+          <li><b>Python + OpenAI Whisper</b> (motor de IA para transcripción con soporte CPU y GPU NVIDIA CUDA)</li>
         </ul>
-        <p style="margin: 0;">Instala todo en Windows ejecutando esto en una terminal de administrador:</p>
-        <div class="code-box" id="installCmd">winget install --id Microsoft.PowerShell --id Gyan.FFmpeg --id yt-dlp.yt-dlp --id oschwartz10612.Poppler -e</div>
+        <p style="margin: 0;">Instala las herramientas en Windows ejecutando esto en una terminal de administrador:</p>
+        <div class="code-box" id="installCmd">winget install --id Microsoft.PowerShell --id Gyan.FFmpeg --id yt-dlp.yt-dlp --id oschwartz10612.Poppler --id Python.Python.3.12 -e &amp;&amp; pip install -U openai-whisper</div>
+        <p style="margin: 6px 0 2px 0; font-size: 11px; color: #222;"><b>⚡ Aceleración GPU NVIDIA (CUDA):</b> Si dispones de tarjeta gráfica NVIDIA compatible (ej. RTX), puedes habilitar la aceleración CUDA instalando PyTorch con soporte CUDA en Python (<code>pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121</code>) para transcripciones ultrarrápidas.</p>
+        <p style="margin: 4px 0 0 0; font-size: 11px; color: #222;"><b>📸 Extractor Inteligente de Diapositivas:</b> El Modo Apuntes requiere <b>FFmpeg en el PATH</b> para analizar la tasa de cambio de escena y exportar fotogramas clave sincronizados con el audio.</p>
         <div style="text-align: right; margin-top: 10px;">
-          <button id="btnCopyCmd"><b>Copiar comando</b></button>
+          <button id="btnCopyCmd" title="Copiar comando de instalación al portapapeles"><b>Copiar comando</b></button>
           <button id="btnOkReq" style="margin-left: 6px;">Entendido</button>
         </div>
       </div>
@@ -86,15 +90,16 @@
   <fieldset id="dropZoneExtract">
     <legend>Extraer Árbol y Contenido</legend>
     <div class="row">
-      <input id="path" list="list-extract" type="text" placeholder="Ruta de la carpeta (o doble clic para recientes)" style="flex: 1;">
+      <input id="path" list="list-extract" type="text" placeholder="Ruta de la carpeta (o doble clic para recientes)" style="flex: 1;" title="Ruta de la carpeta a extraer">
       <datalist id="list-extract"></datalist>
-      <button id="btnBrowse">Examinar...</button>
-      <button id="btnExtraer"><b>Extraer</b></button>
+      <button id="btnBrowse" title="Seleccionar carpeta para extraer árbol y contenido">Examinar...</button>
+      <button id="btnExtraer" title="Extrae la estructura y contenido de los archivos al portapapeles"><b>Extraer</b></button>
     </div>
-    <label><input type="checkbox" id="chkPdf" checked> Incluir documentos (PDF, DOCX)</label>
+    <label title="Incluye archivos PDF, DOCX y presentaciones en el escaneo de contenido."><input type="checkbox" id="chkPdf" checked> Incluir documentos (PDF, DOCX)</label>
+    <label style="margin-left: 10px;" title="Copia únicamente el árbol de carpetas y archivos en el portapapeles sin el código interno (ideal para ahorrar tokens en prompts)."><input type="checkbox" id="chkTreeOnly"> Solo árbol (sin contenido de archivos)</label>
 
     <details>
-      <summary>[+] Filtro de extensiones omitidas</summary>
+      <summary title="Desplegar u ocultar lista de extensiones de archivo omitidas">[+] Filtro de extensiones omitidas</summary>
       <p style="margin: 2px 0; color: #444;">Aparecen en el árbol pero no se extrae su texto. Desmarca para incluir:</p>
       <div class="grid-ext" id="extContainer"></div>
     </details>
@@ -104,42 +109,94 @@
     <legend>Comparar y Sincronizar</legend>
     <div class="row">
       <span class="lbl">Origen:</span>
-      <input id="diffSrc" list="list-diff-src" type="text" placeholder="Carpeta origen" style="flex: 1;">
+      <input id="diffSrc" list="list-diff-src" type="text" placeholder="Carpeta o archivo origen" style="flex: 1;" title="Ruta de la carpeta o archivo de origen">
       <datalist id="list-diff-src"></datalist>
-      <button id="btnBrowseSrc">Examinar...</button>
+      <button id="btnBrowseSrc" title="Examinar archivo o carpeta de origen">Examinar...</button>
     </div>
     <div class="row">
       <span class="lbl">Destino:</span>
-      <input id="diffDst" list="list-diff-dst" type="text" placeholder="Carpeta destino" style="flex: 1;">
+      <input id="diffDst" list="list-diff-dst" type="text" placeholder="Carpeta o archivo destino" style="flex: 1;" title="Ruta de la carpeta o archivo de destino">
       <datalist id="list-diff-dst"></datalist>
-      <button id="btnBrowseDst">Examinar...</button>
+      <button id="btnBrowseDst" title="Examinar archivo o carpeta de destino">Examinar...</button>
     </div>
     <div style="text-align: right; margin-top: 4px;">
-      <button id="btnCompare"><b>Comparar</b></button>
-      <button id="btnSync" style="margin-left: 6px;"><b>Sincronizar (Orig -&gt; Dest)</b></button>
+      <button id="btnCompare" title="Compara dos carpetas mostrando diferencias de archivos, o analiza dos archivos individuales línea a línea (Smart Diff)."><b>Comparar</b></button>
+      <button id="btnSync" style="margin-left: 6px;" title="Sincroniza los archivos o carpetas copiando elementos nuevos o modificados de Origen a Destino"><b>Sincronizar (Orig -&gt; Dest)</b></button>
     </div>
+  </fieldset>
+
+  <fieldset id="dropZoneWhisper">
+    <legend>Transcripción de Audio / Vídeo (Whisper)</legend>
+    <div class="row">
+      <input id="whisperPath" list="list-whisper" type="text" placeholder="Archivo (.mp4, .mp3...) o carpeta con vídeos" style="flex: 1;" title="Ruta del archivo multimedia o carpeta de vídeos a transcribir">
+      <datalist id="list-whisper"></datalist>
+      <button id="btnBrowseWhisper" title="Examinar archivo multimedia o carpeta con vídeos">Examinar...</button>
+    </div>
+    <div class="row" style="margin-top: 4px;">
+      <label>Modelo:</label>
+      <select id="selWhisperModel" title="Selecciona el modelo de IA de Whisper para la transcripción">
+        <option value="tiny" title="Ideal para portátiles o CPU básica. Muy rápido pero con menor precisión técnica.">tiny (rápido / CPU)</option>
+        <option value="base" selected title="Equilibrado y recomendado para clases, vídeos y notas de voz comunes.">base (recomendado)</option>
+        <option value="small" title="Alta precisión. Recomendado para entornos con GPU NVIDIA o audios con ruido.">small (preciso)</option>
+      </select>
+      <label style="margin-left: 6px;">Aceleración:</label>
+      <select id="selWhisperDevice" title="Selecciona si procesar con GPU NVIDIA CUDA o CPU">
+        <option value="cuda" title="Utiliza aceleración por hardware NVIDIA CUDA. Proceso ultrarrápido (minutos). Requiere GPU NVIDIA compatible.">GPU CUDA (NVIDIA)</option>
+        <option value="cpu" selected title="Procesa usando únicamente el procesador del sistema. Recomendado para portátiles o modelos pequeños (tiny/base) para evitar errores de memoria.">CPU (Seguro)</option>
+      </select>
+      <label style="margin-left: 6px;" title="Muestra una notificación nativa de Windows al terminar la transcripción">
+        <input type="checkbox" id="chkWhisperToast" checked> Toast
+      </label>
+      <button id="btnWhisper" style="margin-left: auto; font-weight: bold; padding: 2px 10px;" title="Inicia la transcripción en segundo plano en una terminal de PowerShell">Transcribir</button>
+    </div>
+
+    <details id="detailsNotes">
+      <summary title="Despliega opciones para capturar diapositivas y generar notas con marcas de tiempo">[+] Modo Apuntes de Clase (Capturas + Timestamps)...</summary>
+      <div style="margin-top: 4px;">
+        <label title="Detecta cambios significativos de pantalla en el vídeo y guarda las capturas alineadas con el audio">
+          <input type="checkbox" id="chkNotesMode"> <b>Modo Apuntes:</b> Extraer diapositivas clave y código de la clase
+        </label>
+      </div>
+      <div class="row" style="margin-top: 4px; margin-bottom: 2px;">
+        <label>Sensibilidad:</label>
+        <select id="selSceneThreshold" title="Umbral de detección de cambios de diapositiva o editor">
+          <option value="0.3" title="Sensible / cambios sutiles de diapositiva o editor">0.3 (Sensible)</option>
+          <option value="0.4" selected title="Equilibrado / recomendado">0.4 (Equilibrado)</option>
+          <option value="0.5" title="Baja sensibilidad / solo cambios drásticos de ventana">0.5 (Baja)</option>
+        </select>
+        <label style="margin-left: 8px;">Intervalo mín:</label>
+        <select id="selSceneInterval" title="Tiempo mínimo entre capturas para evitar capturas repetidas si el profesor mueve el ratón o gesticula">
+          <option value="15" title="15 segundos">15s</option>
+          <option value="30" selected title="30 segundos (recomendado)">30s (recomendado)</option>
+          <option value="60" title="60 segundos">60s</option>
+        </select>
+      </div>
+    </details>
   </fieldset>
 
   <fieldset>
     <legend>Vídeo y Descargas</legend>
     <div class="row">
-      <input id="url" type="text" placeholder="URL(s) del vídeo (una o varias)" style="flex: 1;">
-      <button id="btnYt">Descargar</button>
+      <input id="url" type="text" placeholder="URL(s) del vídeo (una o varias)" style="flex: 1;" title="Introduce una o varias URLs de vídeo">
+      <button id="btnYt" title="Descarga los vídeos indicados con yt-dlp">Descargar</button>
     </div>
     <div class="row">
       <label>Compresión:</label>
-      <select id="selQ">
+      <select id="selQ" title="Nivel de calidad y compresión H.264 (CRF)">
         <option value="low">Baja (CRF 28)</option>
         <option value="medium" selected>Media (CRF 23)</option>
         <option value="high">Alta (CRF 18)</option>
       </select>
-      <button id="btnComp">Comprimir</button>
-      <button id="btnFix">Reparar .part</button>
-      <button id="btnStop" style="background:#e0a8a8;">Parar</button>
+      <button id="btnComp" title="Comprime todos los vídeos de la carpeta input usando FFmpeg">Comprimir</button>
+      <button id="btnFix" title="Repara descargas incompletas o corruptas (.part) usando FFmpeg">Reparar .part</button>
+      <button id="btnStop" style="background:#e0a8a8;" title="Detiene todos los procesos de descarga activos de yt-dlp">Parar</button>
     </div>
   </fieldset>
 
-  <button id="btnClear">Limpiar consola</button><br><br>
+  <div class="row" style="margin-bottom: 4px; margin-top: 4px;">
+    <button id="btnClear" title="Limpia el texto de la pantalla de la consola">Limpiar consola</button>
+    <button id="btnCopyConsole" title="Copia todo el historial visible de la terminal al portapapeles de Windows.">Copiar consola</button>
+  </div>
 
   <div class="terminal-container">
     <div id="consola">&gt; CliKit listo.</div>
@@ -168,7 +225,7 @@
       });
     }
 
-    ['extract', 'diff-src', 'diff-dst'].forEach(renderHistory);
+    ['extract', 'diff-src', 'diff-dst', 'whisper'].forEach(renderHistory);
 
     const defaultExcludes = [
       '.png','.jpg','.jpeg','.gif','.svg','.ico',
@@ -236,21 +293,27 @@
     attachDrop(document.getElementById('dropZoneExtract'), document.getElementById('path'));
     attachDrop(document.getElementById('diffSrc'));
     attachDrop(document.getElementById('diffDst'));
+    attachDrop(document.getElementById('whisperPath'));
+    attachDrop(document.getElementById('dropZoneWhisper'), document.getElementById('whisperPath'));
 
     document.getElementById('btnHide').onclick = () => window.api.hideWindow();
     document.getElementById('btnQuit').onclick = () => window.api.quitApp();
 
     document.getElementById('btnBrowse').onclick = async () => {
-      const f = await window.api.pickFolder();
+      const f = await window.api.pickPath('folder');
       if (f) document.getElementById('path').value = f;
     };
     document.getElementById('btnBrowseSrc').onclick = async () => {
-      const f = await window.api.pickFolder();
+      const f = await window.api.pickPathMenu('diff');
       if (f) document.getElementById('diffSrc').value = f;
     };
     document.getElementById('btnBrowseDst').onclick = async () => {
-      const f = await window.api.pickFolder();
+      const f = await window.api.pickPathMenu('diff');
       if (f) document.getElementById('diffDst').value = f;
+    };
+    document.getElementById('btnBrowseWhisper').onclick = async () => {
+      const f = await window.api.pickPathMenu('media');
+      if (f) document.getElementById('whisperPath').value = f;
     };
 
     document.getElementById('btnExtraer').onclick = async () => {
@@ -261,6 +324,7 @@
       const res = await window.api.runExtraer({
         path: targetPath,
         includePdf: document.getElementById('chkPdf').checked,
+        treeOnly: document.getElementById('chkTreeOnly').checked,
         excludeExt: activeExcludes
       });
       log(res);
@@ -298,6 +362,37 @@
       }
     };
 
+    document.getElementById('btnWhisper').onclick = async () => {
+      const targetFile = document.getElementById('whisperPath').value.trim();
+      if (!targetFile) {
+        log('[ERROR] Selecciona un archivo o carpeta con vídeos para transcribir.');
+        return;
+      }
+      const model = document.getElementById('selWhisperModel').value;
+      const device = document.getElementById('selWhisperDevice').value;
+      const notifyToast = document.getElementById('chkWhisperToast').checked;
+      const notesMode = document.getElementById('chkNotesMode').checked;
+      const sceneThreshold = parseFloat(document.getElementById('selSceneThreshold').value) || 0.4;
+      const sceneInterval = parseInt(document.getElementById('selSceneInterval').value, 10) || 30;
+
+      const modeInfo = notesMode ? ' + Modo Apuntes' : '';
+      log(`Iniciando transcripción con Whisper (${model}, ${device.toUpperCase()}${modeInfo})...\nOrigen: ${targetFile}`);
+      const res = await window.api.runWhisper({
+        path: targetFile,
+        model: model,
+        device: device,
+        notifyToast: notifyToast,
+        notesMode: notesMode,
+        sceneThreshold: sceneThreshold,
+        sceneInterval: sceneInterval
+      });
+      log(res);
+
+      if (!res.includes('[ERROR]') && !res.includes('❌')) {
+        addToHistory('whisper', targetFile);
+      }
+    };
+
     document.getElementById('btnYt').onclick = async () => {
       const u = document.getElementById('url').value.trim();
       log('Descargando vídeo(s)...');
@@ -321,6 +416,20 @@
 
     document.getElementById('btnClear').onclick = () => {
       log('> Listo.');
+    };
+
+    const btnCopyConsole = document.getElementById('btnCopyConsole');
+    btnCopyConsole.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(consola.innerText);
+        const prevText = btnCopyConsole.innerText;
+        btnCopyConsole.innerText = '¡Copiado!';
+        setTimeout(() => {
+          btnCopyConsole.innerText = prevText;
+        }, 1500);
+      } catch (err) {
+        log(`[ERROR] No se pudo copiar al portapapeles: ${err.message}`);
+      }
     };
 
     // matrix
